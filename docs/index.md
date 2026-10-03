@@ -27,7 +27,8 @@ spring-ai-agent-utils/
     └── memory/
         ├── memory-tools-demo/           # Long-term memory with AutoMemoryTools (manual setup)
         ├── memory-filesystem-tools-demo/# Long-term memory with general FileSystemTools
-        └── memory-tools-advisor-demo/   # Long-term memory via AutoMemoryToolsAdvisor
+        ├── memory-tools-advisor-demo/   # Long-term memory via AutoAutoMemoryToolsAdvisor
+        └── memory-tools-dream-demo/     # Out-of-band consolidation via AutoDreamAdvisor/AutoDreamService
 ```
 
 ## Quick Start
@@ -42,7 +43,7 @@ Use the BOM to manage versions consistently across all modules:
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils-bom</artifactId>
-            <version>0.10.0</version>
+            <version>0.12.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -63,7 +64,7 @@ Or add the core library directly:
 <dependency>
     <groupId>org.springaicommunity</groupId>
     <artifactId>spring-ai-agent-utils</artifactId>
-    <version>0.10.0</version>
+    <version>0.12.0</version>
 </dependency>
 ```
 
@@ -171,7 +172,8 @@ mvn spring-boot:run
 | `ask-user-question-demo` | Interactive agent-user communication with `AskUserQuestionTool` |
 | `memory/memory-tools-demo` | Long-term memory across conversations using dedicated, sandboxed `AutoMemoryTools` (manual setup) |
 | `memory/memory-filesystem-tools-demo` | Long-term memory using general-purpose `FileSystemTools` — no dedicated memory tooling required |
-| `memory/memory-tools-advisor-demo` | Long-term memory via `AutoMemoryToolsAdvisor` — advisor-based setup with consolidation trigger |
+| `memory/memory-tools-advisor-demo` | Long-term memory via `AutoAutoMemoryToolsAdvisor` — advisor-based setup with consolidation trigger |
+| `memory/memory-tools-dream-demo` | Out-of-band memory consolidation via `AutoDreamAdvisor`/`AutoDreamService` — automatic and on-demand dream cycles, with optional cross-session recall |
 
 ## License
 

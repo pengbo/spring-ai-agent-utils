@@ -17,131 +17,91 @@ package org.springaicommunity.agent.tools;
 
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
+import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
-import java.nio.file.LinkOption;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.List;
 
+import org.springaicommunity.agent.common.workspace.Workspace;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.ai.tool.annotation.ToolParam;
+import org.springframework.util.Assert;
 
 /**
  * @author Christian Tzolov
  */
 public class FileSystemTools {
 
-	private final List<Path> allowedDirectories;
+	private final AllowedDirectories allowedDirectories;
 
 	protected FileSystemTools(List<Path> allowedDirectories) {
-		this.allowedDirectories = List.copyOf(allowedDirectories);
+		this.allowedDirectories = new AllowedDirectories(allowedDirectories);
 	}
 
 	/**
-	 * Validates that the given file path is within at least one configured allowed directory.
-	 * When no allowed directories are configured, all paths are allowed.
-	 * Uses three checks per directory candidate:
-	 * (1) rejects raw {@code ..} path components to prevent symlink+{@code ..} escapes,
-	 * (2) normalized path containment check to block remaining {@code ..} traversal,
-	 * (3) real-path resolution walking up existing path components to catch symlink escapes
-	 * including dangling symlinks (skipped when the candidate directory does not yet exist).
+	 * Validates that the given file path is within at least one configured allowed
+	 * directory. Shared semantics with GrepTool/GlobTool/ListDirectoryTool — see
+	 * {@link AllowedDirectories}.
 	 * @param filePath the path to validate
 	 * @return an error string if access is denied, or {@code null} if access is allowed
 	 */
 	private String validateAllowedAccess(String filePath) {
-		if (this.allowedDirectories.isEmpty()) {
-			return null;
-		}
-		try {
-			Path targetAbs = Paths.get(filePath).toAbsolutePath();
+		return this.allowedDirectories.validate(filePath);
+	}
 
-			// Check 1: reject '..' components in the raw absolute path.
-			// Normalizing before this check would hide symlink+'..' bypass attempts
-			// (e.g. /allowed/link/../outside normalizes to /allowed/outside but the OS
-			// resolves 'link' as a symlink first, landing outside the allowed directory).
-			for (Path component : targetAbs) {
-				if ("..".equals(component.toString())) {
-					return "Error: Access denied. Path is outside the allowed directories: " + filePath;
-				}
-			}
+	/**
+	 * UTF-8 reader with REPLACE error handling: malformed bytes become U+FFFD instead of
+	 * aborting the whole read (matching the tolerance of the legacy FileReader while
+	 * standardizing the charset).
+	 */
+	private static BufferedReader lenientUtf8Reader(Path file) throws IOException {
+		return new BufferedReader(new InputStreamReader(Files.newInputStream(file),
+				StandardCharsets.UTF_8.newDecoder()
+					.onMalformedInput(CodingErrorAction.REPLACE)
+					.onUnmappableCharacter(CodingErrorAction.REPLACE)));
+	}
 
-			Path target = targetAbs.normalize();
-
-			for (Path allowedDir : this.allowedDirectories) {
-				Path allowed = allowedDir.toAbsolutePath().normalize();
-
-				// Check 2: normalized path must start with this candidate (blocks remaining traversal)
-				if (!target.startsWith(allowed)) {
-					continue;
-				}
-
-				// Check 3: resolve symlinks in all existing path components to catch symlink escapes.
-				// Skipped when the candidate directory does not yet exist (checks 1+2 are sufficient then).
-				if (Files.exists(allowed)) {
-					Path realAllowed = allowed.toRealPath();
-					Path existing = target;
-					while (existing != null && !Files.exists(existing, LinkOption.NOFOLLOW_LINKS)) {
-						existing = existing.getParent();
-					}
-					if (existing != null) {
-						Path realExisting;
-						try {
-							realExisting = existing.toRealPath();
-						}
-						catch (IOException e) {
-							// toRealPath() throws on a dangling symlink (symlink exists but target does not).
-							// We cannot verify where it points, so deny access unconditionally.
-							return "Error: Access denied. Cannot resolve path (possible dangling symlink): "
-									+ filePath;
-						}
-						if (!realExisting.startsWith(realAllowed)) {
-							continue;
-						}
-					}
-				}
-
-				return null; // path is within this allowed directory
-			}
-
-			return "Error: Access denied. Path is outside the allowed directories: " + filePath;
-		}
-		catch (RuntimeException e) {
-			return "Error: Invalid path: " + e.getMessage();
-		}
-		catch (IOException e) {
-			return "Error validating path: " + e.getMessage();
+	/**
+	 * Streaming UTF-8 write with REPLACE error handling: unpaired surrogates are
+	 * substituted instead of failing the write (matching the legacy FileWriter), and
+	 * content is streamed rather than materialized as one encoded byte array.
+	 */
+	private static void lenientUtf8Write(Path file, String content) throws IOException {
+		try (BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(Files.newOutputStream(file),
+				StandardCharsets.UTF_8.newEncoder()
+					.onMalformedInput(CodingErrorAction.REPLACE)
+					.onUnmappableCharacter(CodingErrorAction.REPLACE)))) {
+			writer.write(content);
 		}
 	}
 
 	// @formatter:off
 	@Tool(name = "Read", description = """
-		Reads a file from the local filesystem. You can access any file directly by using this tool.
-		Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
+		Reads a UTF-8 text file from the local filesystem. The path must be absolute and, when allowed directories are configured, must be within one of them. It is okay to read a file that does not exist; an error will be returned.
+		Results are returned using cat -n format, with line numbers starting at 1. Text only: binary files, including PDFs, images, and office documents, are not decoded.
 
 		Usage:
-		- The file_path parameter must be an absolute path, not a relative path
 		- By default, it reads up to 2000 lines starting from the beginning of the file
 		- You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 		- Any lines longer than 2000 characters will be truncated
-		- Results are returned using cat -n format, with line numbers starting at 1
-		- This tool allows Claude Code to read images (eg PNG, JPG, etc). When reading an image file the contents are presented visually as Claude Code is a multimodal LLM.
-		- This tool can read PDF files (.pdf). PDFs are processed page by page, extracting both text and visual content for analysis.
-		- This tool can read Jupyter notebooks (.ipynb files) and returns all cells with their outputs, combining code, text, and visualizations.
-		- This tool can only read files, not directories. To read a directory, use an ls command via the Bash tool.
-		- You can call multiple tools in a single response. It is always better to speculatively read multiple potentially useful files in parallel.
-		- You will regularly be asked to read screenshots. If the user provides a path to a screenshot, ALWAYS use this tool to view the file at the path. This tool will work with all temporary file paths.
-		- If you read a file that exists but has empty contents you will receive a system reminder warning in place of file contents.
+		- This tool can only read files, not directories
+		- If the file exists but is empty, a "File is empty" message is returned instead of contents
 		""")
 	public String read(
 		@ToolParam(description = "The absolute path to the file to read") String filePath,
 		@ToolParam(description = "The line number to start reading from. Only provide if the file is too large to read at once", required = false) Integer offset,
 		@ToolParam(description = "The number of lines to read. Only provide if the file is too large to read at once.", required = false) Integer limit) { // @formatter:on
+
+		if (filePath == null || filePath.isBlank()) {
+			return "Error: file_path must not be empty";
+		}
 
 		String accessError = validateAllowedAccess(filePath);
 		if (accessError != null) {
@@ -149,13 +109,13 @@ public class FileSystemTools {
 		}
 
 		try {
-			File file = new File(filePath);
+			Path file = Paths.get(filePath);
 
-			if (!file.exists()) {
+			if (!Files.exists(file)) {
 				return "Error: File does not exist: " + filePath;
 			}
 
-			if (file.isDirectory()) {
+			if (Files.isDirectory(file)) {
 				return "Error: Path is a directory, not a file: " + filePath;
 			}
 
@@ -171,7 +131,8 @@ public class FileSystemTools {
 			int currentLine = 0;
 			int linesRead = 0;
 
-			try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+			boolean limitHit = false;
+			try (BufferedReader reader = lenientUtf8Reader(file)) {
 				String line;
 				while ((line = reader.readLine()) != null) {
 					currentLine++;
@@ -181,8 +142,10 @@ public class FileSystemTools {
 						continue;
 					}
 
-					// Stop if we've read enough lines
+					// Stop if we've read enough lines. The line that triggered the stop
+					// was already counted, so the file has at least currentLine lines.
 					if (linesRead >= maxLines) {
+						limitHit = true;
 						break;
 					}
 
@@ -208,8 +171,11 @@ public class FileSystemTools {
 
 			StringBuilder result = new StringBuilder();
 			result.append(String.format("File: %s\n", filePath));
+			// When the limit stopped the read, currentLine is a lower bound, not the
+			// total — say so, or the model assumes the file was fully read.
 			result.append(
-					String.format("Showing lines %d-%d of %d\n\n", startLine, startLine + linesRead - 1, currentLine));
+					String.format(limitHit ? "Showing lines %d-%d of at least %d\n\n" : "Showing lines %d-%d of %d\n\n",
+							startLine, startLine + linesRead - 1, currentLine));
 
 			for (String line : lines) {
 				result.append(line).append("\n");
@@ -217,6 +183,9 @@ public class FileSystemTools {
 
 			return result.toString();
 
+		}
+		catch (InvalidPathException e) {
+			return "Error: Invalid path: " + e.getMessage();
 		}
 		catch (IOException e) {
 			return "Error reading file: " + e.getMessage();
@@ -238,6 +207,10 @@ public class FileSystemTools {
 		@ToolParam(description = "The absolute path to the file to write (must be absolute, not relative)") String filePath,
 		@ToolParam(description = "The content to write to the file") String content) { // @formatter:on
 
+		if (filePath == null || filePath.isBlank()) {
+			return "Error: file_path must not be empty";
+		}
+
 		String accessError = validateAllowedAccess(filePath);
 		if (accessError != null) {
 			return accessError;
@@ -247,23 +220,23 @@ public class FileSystemTools {
 			content = content != null ? content : "";
 
 			Path path = Paths.get(filePath);
-			File file = path.toFile();
 
 			// Create parent directories if they don't exist
-			File parentDir = file.getParentFile();
-			if (parentDir != null && !parentDir.exists()) {
-				if (!parentDir.mkdirs()) {
+			Path parentDir = path.getParent();
+			if (parentDir != null && !Files.exists(parentDir)) {
+				try {
+					Files.createDirectories(parentDir);
+				}
+				catch (IOException e) {
 					return "Error: Failed to create parent directories for: " + filePath;
 				}
 			}
 
 			// Check if file already exists
-			boolean fileExists = file.exists();
+			boolean fileExists = Files.exists(path);
 
 			// Write content to file
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file, false))) {
-				writer.write(content);
-			}
+			lenientUtf8Write(path, content);
 
 			if (fileExists) {
 				return String.format("Successfully overwrote file: %s (%d bytes)", filePath, content.length());
@@ -299,19 +272,23 @@ public class FileSystemTools {
 		@ToolParam(description = "The text to replace it with (must be different from old_string)") String new_string,
 		@ToolParam(description = "Replace all occurences of old_string (default false)", required = false) Boolean replace_all) { // @formatter:on
 
+		if (filePath == null || filePath.isBlank()) {
+			return "Error: file_path must not be empty";
+		}
+
 		String accessError = validateAllowedAccess(filePath);
 		if (accessError != null) {
 			return accessError;
 		}
 
 		try {
-			File file = new File(filePath);
+			Path file = Paths.get(filePath);
 
-			if (!file.exists()) {
+			if (!Files.exists(file)) {
 				return "Error: File does not exist: " + filePath;
 			}
 
-			if (file.isDirectory()) {
+			if (Files.isDirectory(file)) {
 				return "Error: Path is a directory, not a file: " + filePath;
 			}
 
@@ -323,7 +300,7 @@ public class FileSystemTools {
 			// Read the entire file content preserving exact line endings
 			String originalContent;
 			try {
-				originalContent = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+				originalContent = Files.readString(file, StandardCharsets.UTF_8);
 			}
 			catch (IOException e) {
 				return "Error reading file content: " + e.getMessage();
@@ -356,9 +333,7 @@ public class FileSystemTools {
 			}
 
 			// Write the modified content back to the file
-			try (BufferedWriter writer = new BufferedWriter(new FileWriter(file, false))) {
-				writer.write(newContent);
-			}
+			lenientUtf8Write(file, newContent);
 
 			// Generate a snippet showing the context around the edit
 			String snippet = generateEditSnippet(newContent, new_string);
@@ -368,6 +343,9 @@ public class FileSystemTools {
 					"The file %s has been updated. Here's the result of running `cat -n` on a snippet of the edited file:\n%s",
 					filePath, snippet);
 
+		}
+		catch (InvalidPathException e) {
+			return "Error: Invalid path: " + e.getMessage();
 		}
 		catch (IOException e) {
 			return "Error editing file: " + e.getMessage();
@@ -478,22 +456,20 @@ public class FileSystemTools {
 
 	public static class Builder {
 
-		private final List<Path> allowedDirectories = new ArrayList<>();
+		private final AllowedDirectories.Collector allowedDirectories = new AllowedDirectories.Collector();
 
 		private Builder() {
 		}
 
 		/**
-		 * Adds a directory to the list of allowed paths. All file operations are restricted
-		 * to the union of configured allowed directories. Symlinks are resolved to their
-		 * real path before the check.
+		 * Adds a directory to the list of allowed paths. All file operations are
+		 * restricted to the union of configured allowed directories. Symlinks are
+		 * resolved to their real path before the check.
 		 * @param allowedDirectory the directory to allow operations within
 		 * @return this builder
 		 */
 		public Builder allowedDirectory(Path allowedDirectory) {
-			if (allowedDirectory != null) {
-				this.allowedDirectories.add(allowedDirectory);
-			}
+			this.allowedDirectories.add(allowedDirectory);
 			return this;
 		}
 
@@ -503,9 +479,7 @@ public class FileSystemTools {
 		 * @return this builder
 		 */
 		public Builder allowedDirectory(String allowedDirectory) {
-			if (allowedDirectory != null) {
-				this.allowedDirectories.add(Paths.get(allowedDirectory));
-			}
+			this.allowedDirectories.add(allowedDirectory);
 			return this;
 		}
 
@@ -515,16 +489,24 @@ public class FileSystemTools {
 		 * @return this builder
 		 */
 		public Builder allowedDirectories(Path... allowedDirectories) {
-			for (Path dir : allowedDirectories) {
-				if (dir != null) {
-					this.allowedDirectories.add(dir);
-				}
-			}
+			this.allowedDirectories.addAll(allowedDirectories);
+			return this;
+		}
+
+		/**
+		 * Confines all file operations to the given workspace — shorthand for
+		 * {@code allowedDirectory(workspace.root())}.
+		 * @param workspace the workspace to operate within
+		 * @return this builder
+		 */
+		public Builder workspace(Workspace workspace) {
+			Assert.notNull(workspace, "workspace must not be null");
+			this.allowedDirectories.add(workspace.root());
 			return this;
 		}
 
 		public FileSystemTools build() {
-			return new FileSystemTools(this.allowedDirectories);
+			return new FileSystemTools(this.allowedDirectories.toList());
 		}
 
 	}

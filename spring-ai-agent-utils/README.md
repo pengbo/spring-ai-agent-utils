@@ -45,7 +45,7 @@ While these tools can be used standalone, truly agentic behavior emerges when th
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils-bom</artifactId>
-            <version>0.10.0</version>
+            <version>0.12.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -65,7 +65,7 @@ While these tools can be used standalone, truly agentic behavior emerges when th
 <dependency>
     <groupId>org.springaicommunity</groupId>
     <artifactId>spring-ai-agent-utils</artifactId>
-    <version>0.10.0</version>
+    <version>0.12.0</version>
 </dependency>
 ```
 
@@ -414,13 +414,11 @@ Structured task list management for AI coding sessions. Helps AI agents track pr
 TodoWriteTool todoTool = TodoWriteTool.builder().build();
 
 // Create and manage task list
-Todos todos = new Todos(List.of(
+todoTool.todoWrite(List.of(
     new TodoItem("Read configuration", Status.completed, "Reading configuration"),
     new TodoItem("Parse settings", Status.in_progress, "Parsing settings"),
     new TodoItem("Validate config", Status.pending, "Validating config")
 ));
-
-todoTool.todoWrite(todos);
 ```
 
 ### TaskTools - Extensible Sub-Agent System

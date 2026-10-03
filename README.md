@@ -78,6 +78,7 @@ While these tools can be used standalone, truly agentic behavior emerges when th
 | [**spring-ai-agent-utils**](spring-ai-agent-utils/README.md) | Core library - tools, skills, Claude subagents, and full API reference |
 | [**spring-ai-agent-utils-common**](spring-ai-agent-utils-common/README.md) | Shared subagent SPI (SubagentDefinition, SubagentResolver, SubagentExecutor, SubagentType) |
 | [**spring-ai-agent-utils-a2a**](spring-ai-agent-utils-a2a/README.md) | A2A protocol subagent for remote agent orchestration |
+| [**spring-ai-agent-utils-docker-cli**](docs/tools/DockerCliExecBackend.md) | Docker ExecBackend - run agent shell commands inside a sandbox container (in `exec-backends/`) |
 | [**spring-ai-agent-utils-bom**](spring-ai-agent-utils-bom/pom.xml) | Bill of Materials for consistent version management across all modules |
 | [**Examples**](#examples) | Working demos showcasing different use cases |
 
@@ -94,7 +95,7 @@ Use the BOM to manage versions consistently across all modules:
         <dependency>
             <groupId>org.springaicommunity</groupId>
             <artifactId>spring-ai-agent-utils-bom</artifactId>
-            <version>0.10.0</version>
+            <version>0.12.0</version>
             <type>pom</type>
             <scope>import</scope>
         </dependency>
@@ -115,7 +116,7 @@ Or add the core library directly:
 <dependency>
     <groupId>org.springaicommunity</groupId>
     <artifactId>spring-ai-agent-utils</artifactId>
-    <version>0.10.0</version>
+    <version>0.12.0</version>
 </dependency>
 ```
 

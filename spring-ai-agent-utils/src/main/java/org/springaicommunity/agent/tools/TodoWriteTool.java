@@ -20,7 +20,6 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import org.springframework.ai.chat.model.ToolContext;
 import org.springframework.ai.tool.annotation.Tool;
 
 /**
@@ -32,7 +31,7 @@ import org.springframework.ai.tool.annotation.Tool;
  * time and that all task data is properly formatted.
  *
  * @author Christian Tzolov
- * @author zz_zhi
+ * @author kezhenxu94
  */
 public class TodoWriteTool {
 
@@ -45,10 +44,6 @@ public class TodoWriteTool {
 
 		void handle(Todos todos);
 
-		default void handle(Todos todos, ToolContext toolContext) {
-			handle(todos);
-		}
-
 	}
 
 	protected TodoWriteTool(TodoEventHandler todoListConsumer) {
@@ -57,7 +52,7 @@ public class TodoWriteTool {
 
 	// @formatter:off
 	@Tool(name = "TodoWrite", description = """
-		Use this tool to create and manage a structured task list for your current coding session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
+		Use this tool to create and manage a structured task list for your current session. This helps you track progress, organize complex tasks, and demonstrate thoroughness to the user.
 		It also helps the user understand the progress of the task and overall progress of their requests.
 
 		## When to Use This Tool
@@ -247,22 +242,16 @@ public class TodoWriteTool {
 
 		When in doubt, use this tool. Being proactive with task management demonstrates attentiveness and ensures you complete all requirements successfully.
 		""")
-	public String todoWrite(Todos todos, ToolContext toolContext) { // @formatter:on
+	public String todoWrite(List<Todos.TodoItem> todos) { // @formatter:on
+
+		Todos todoList = new Todos(todos);
 
 		// Validate the todos
-		this.validateTodos(todos);
+		this.validateTodos(todoList);
 
-		this.todoListConsumer.handle(todos, toolContext);
+		this.todoListConsumer.handle(todoList);
 
 		return "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable";
-	}
-
-	/**
-	 * Backward-compatible overload without {@link ToolContext}. Delegates to
-	 * {@link #todoWrite(Todos, ToolContext)} with a {@code null} context.
-	 */
-	public String todoWrite(Todos todos) {
-		return todoWrite(todos, null);
 	}
 
 	/**

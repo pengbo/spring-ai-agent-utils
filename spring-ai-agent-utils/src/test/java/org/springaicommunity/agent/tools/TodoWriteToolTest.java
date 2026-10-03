@@ -17,7 +17,6 @@ package org.springaicommunity.agent.tools;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -27,8 +26,11 @@ import org.junit.jupiter.api.Test;
 import org.springaicommunity.agent.tools.TodoWriteTool.Todos;
 import org.springaicommunity.agent.tools.TodoWriteTool.Todos.Status;
 import org.springaicommunity.agent.tools.TodoWriteTool.Todos.TodoItem;
+import tools.jackson.databind.JsonNode;
+import tools.jackson.databind.json.JsonMapper;
 
-import org.springframework.ai.chat.model.ToolContext;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -37,7 +39,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * Tests for {@link TodoWriteTool}.
  *
  * @author Christian Tzolov
- * @author zz_zhi
+ * @author kezhenxu94
  */
 @DisplayName("TodoWriteTool Tests")
 class TodoWriteToolTest {
@@ -85,24 +87,20 @@ class TodoWriteToolTest {
 		@DisplayName("Should accept valid todos with one pending task")
 		void shouldAcceptValidTodosWithOnePendingTask() {
 			List<TodoItem> items = List.of(new TodoItem("Fix bug", Status.pending, "Fixing bug"));
-			Todos todos = new Todos(items);
-
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos);
+			String result = TodoWriteToolTest.this.tool.todoWrite(items);
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(TodoWriteToolTest.this.capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).isEqualTo(items);
 		}
 
 		@Test
 		@DisplayName("Should accept valid todos with one in_progress task")
 		void shouldAcceptValidTodosWithOneInProgressTask() {
 			List<TodoItem> items = List.of(new TodoItem("Implement feature", Status.in_progress, "Implementing feature"));
-			Todos todos = new Todos(items);
-
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos);
+			String result = TodoWriteToolTest.this.tool.todoWrite(items);
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(TodoWriteToolTest.this.capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).isEqualTo(items);
 		}
 
 		@Test
@@ -111,12 +109,10 @@ class TodoWriteToolTest {
 			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.completed, "Completing task 1"),
 					new TodoItem("Task 2", Status.in_progress, "Working on task 2"),
 					new TodoItem("Task 3", Status.pending, "Preparing task 3"));
-			Todos todos = new Todos(items);
-
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos);
+			String result = TodoWriteToolTest.this.tool.todoWrite(items);
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(TodoWriteToolTest.this.capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).isEqualTo(items);
 			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).hasSize(3);
 		}
 
@@ -125,23 +121,19 @@ class TodoWriteToolTest {
 		void shouldAcceptValidTodosWithAllCompletedTasks() {
 			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.completed, "Completing task 1"),
 					new TodoItem("Task 2", Status.completed, "Completing task 2"));
-			Todos todos = new Todos(items);
-
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos);
+			String result = TodoWriteToolTest.this.tool.todoWrite(items);
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(TodoWriteToolTest.this.capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).isEqualTo(items);
 		}
 
 		@Test
 		@DisplayName("Should accept empty todo list")
 		void shouldAcceptEmptyTodoList() {
-			Todos todos = new Todos(new ArrayList<>());
-
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos);
+			String result = TodoWriteToolTest.this.tool.todoWrite(new ArrayList<>());
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(TodoWriteToolTest.this.capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).isEmpty();
 		}
 
 	}
@@ -155,9 +147,7 @@ class TodoWriteToolTest {
 		void shouldRejectTodosWithTwoInProgressTasks() {
 			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.in_progress, "Working on task 1"),
 					new TodoItem("Task 2", Status.in_progress, "Working on task 2"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("Only ONE task can be in_progress at a time")
 				.hasMessageContaining("Found 2 in_progress tasks");
@@ -169,9 +159,7 @@ class TodoWriteToolTest {
 			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.in_progress, "Working on task 1"),
 					new TodoItem("Task 2", Status.in_progress, "Working on task 2"),
 					new TodoItem("Task 3", Status.in_progress, "Working on task 3"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("Only ONE task can be in_progress at a time")
 				.hasMessageContaining("Found 3 in_progress tasks");
@@ -187,9 +175,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with null content")
 		void shouldRejectTodoWithNullContent() {
 			List<TodoItem> items = List.of(new TodoItem(null, Status.pending, "Doing something"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank content");
 		}
@@ -198,9 +184,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with empty content")
 		void shouldRejectTodoWithEmptyContent() {
 			List<TodoItem> items = List.of(new TodoItem("", Status.pending, "Doing something"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank content");
 		}
@@ -209,9 +193,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with blank content")
 		void shouldRejectTodoWithBlankContent() {
 			List<TodoItem> items = List.of(new TodoItem("   ", Status.pending, "Doing something"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank content");
 		}
@@ -221,9 +203,7 @@ class TodoWriteToolTest {
 		void shouldRejectSecondTodoWithBlankContent() {
 			List<TodoItem> items = List.of(new TodoItem("Valid task", Status.pending, "Doing valid task"),
 					new TodoItem("   ", Status.pending, "Doing something"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("Task at index 1")
 				.hasMessageContaining("has empty or blank content");
@@ -239,9 +219,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with null activeForm")
 		void shouldRejectTodoWithNullActiveForm() {
 			List<TodoItem> items = List.of(new TodoItem("Fix bug", Status.pending, null));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank activeForm");
 		}
@@ -250,9 +228,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with empty activeForm")
 		void shouldRejectTodoWithEmptyActiveForm() {
 			List<TodoItem> items = List.of(new TodoItem("Fix bug", Status.pending, ""));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank activeForm");
 		}
@@ -261,9 +237,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with blank activeForm")
 		void shouldRejectTodoWithBlankActiveForm() {
 			List<TodoItem> items = List.of(new TodoItem("Fix bug", Status.pending, "   "));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has empty or blank activeForm");
 		}
@@ -278,9 +252,7 @@ class TodoWriteToolTest {
 		@DisplayName("Should reject todo with null status")
 		void shouldRejectTodoWithNullStatus() {
 			List<TodoItem> items = List.of(new TodoItem("Fix bug", null, "Fixing bug"));
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("has null status")
 				.hasMessageContaining("Status must be one of: pending, in_progress, completed");
@@ -301,23 +273,11 @@ class TodoWriteToolTest {
 		}
 
 		@Test
-		@DisplayName("Should reject null todo list")
-		void shouldRejectNullTodoList() {
-			Todos todos = new Todos(null);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
-				.isInstanceOf(IllegalArgumentException.class)
-				.hasMessageContaining("Todos cannot be null");
-		}
-
-		@Test
 		@DisplayName("Should reject null todo item")
 		void shouldRejectNullTodoItem() {
 			List<TodoItem> items = new ArrayList<>();
 			items.add(null);
-			Todos todos = new Todos(items);
-
-			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(todos))
+			assertThatThrownBy(() -> TodoWriteToolTest.this.tool.todoWrite(items))
 				.isInstanceOf(IllegalArgumentException.class)
 				.hasMessageContaining("Task at index 0 is null");
 		}
@@ -367,26 +327,22 @@ class TodoWriteToolTest {
 			// Initial state - all pending
 			List<TodoItem> items1 = List.of(new TodoItem("Task 1", Status.pending, "Doing task 1"),
 					new TodoItem("Task 2", Status.pending, "Doing task 2"));
-			Todos todos1 = new Todos(items1);
-			TodoWriteToolTest.this.tool.todoWrite(todos1);
+			TodoWriteToolTest.this.tool.todoWrite(items1);
 
 			// Start working on task 1
 			List<TodoItem> items2 = List.of(new TodoItem("Task 1", Status.in_progress, "Doing task 1"),
 					new TodoItem("Task 2", Status.pending, "Doing task 2"));
-			Todos todos2 = new Todos(items2);
-			TodoWriteToolTest.this.tool.todoWrite(todos2);
+			TodoWriteToolTest.this.tool.todoWrite(items2);
 
 			// Complete task 1, start task 2
 			List<TodoItem> items3 = List.of(new TodoItem("Task 1", Status.completed, "Doing task 1"),
 					new TodoItem("Task 2", Status.in_progress, "Doing task 2"));
-			Todos todos3 = new Todos(items3);
-			TodoWriteToolTest.this.tool.todoWrite(todos3);
+			TodoWriteToolTest.this.tool.todoWrite(items3);
 
 			// Complete all tasks
 			List<TodoItem> items4 = List.of(new TodoItem("Task 1", Status.completed, "Doing task 1"),
 					new TodoItem("Task 2", Status.completed, "Doing task 2"));
-			Todos todos4 = new Todos(items4);
-			String result = TodoWriteToolTest.this.tool.todoWrite(todos4);
+			String result = TodoWriteToolTest.this.tool.todoWrite(items4);
 
 			assertThat(result).contains("Todos have been modified successfully");
 		}
@@ -394,78 +350,39 @@ class TodoWriteToolTest {
 	}
 
 	@Nested
-	@DisplayName("ToolContext Tests")
-	class ToolContextTests {
+	@DisplayName("ToolCallback Tests")
+	class ToolCallbackTests {
 
-		@Test
-		@DisplayName("Should pass ToolContext to TodoEventHandler")
-		void shouldPassToolContextToTodoEventHandler() {
-			AtomicReference<ToolContext> capturedContext = new AtomicReference<>();
-			TodoWriteTool.TodoEventHandler handler = new TodoWriteTool.TodoEventHandler() {
-				@Override
-				public void handle(Todos todos) {
-					// no-op
-				}
-
-				@Override
-				public void handle(Todos todos, ToolContext toolContext) {
-					capturedContext.set(toolContext);
-				}
-			};
-			TodoWriteTool contextTool = TodoWriteTool.builder().todoEventHandler(handler).build();
-
-			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.pending, "Doing task 1"));
-			Todos todos = new Todos(items);
-			ToolContext toolContext = new ToolContext(Map.of("channelId", "test-channel"));
-
-			contextTool.todoWrite(todos, toolContext);
-
-			assertThat(capturedContext.get()).isSameAs(toolContext);
-			assertThat(capturedContext.get().getContext()).containsEntry("channelId", "test-channel");
+		private ToolCallback toolCallback() {
+			return ToolCallbacks.from(TodoWriteToolTest.this.tool)[0];
 		}
 
 		@Test
-		@DisplayName("Should pass null ToolContext when using overloaded method")
-		void shouldPassNullToolContextWhenUsingOverloadedMethod() {
-			AtomicReference<ToolContext> capturedContext = new AtomicReference<>();
-			TodoWriteTool.TodoEventHandler handler = new TodoWriteTool.TodoEventHandler() {
-				@Override
-				public void handle(Todos todos) {
-					// no-op
-				}
+		@DisplayName("Should expose todos as a flat array in the input schema")
+		void shouldExposeTodosAsFlatArrayInInputSchema() {
+			JsonNode schema = JsonMapper.shared().readTree(toolCallback().getToolDefinition().inputSchema());
 
-				@Override
-				public void handle(Todos todos, ToolContext toolContext) {
-					capturedContext.set(toolContext);
-				}
-			};
-			TodoWriteTool contextTool = TodoWriteTool.builder().todoEventHandler(handler).build();
+			JsonNode todos = schema.path("properties").path("todos");
 
-			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.pending, "Doing task 1"));
-			Todos todos = new Todos(items);
-
-			contextTool.todoWrite(todos);
-
-			assertThat(capturedContext.get()).isNull();
+			assertThat(todos.path("type").asString()).isEqualTo("array");
+			assertThat(todos.path("items").path("properties").propertyNames()).containsExactlyInAnyOrder("content",
+					"status", "activeForm");
 		}
 
 		@Test
-		@DisplayName("Should work with old-style TodoEventHandler lambda (backward compatibility)")
-		void shouldWorkWithOldStyleTodoEventHandlerLambda() {
-			// Old-style lambda: todos -> ... (single argument)
-			AtomicReference<Todos> capturedTodos = new AtomicReference<>();
-			TodoWriteTool oldStyleTool = TodoWriteTool.builder()
-				.todoEventHandler(capturedTodos::set)
-				.build();
-
-			List<TodoItem> items = List.of(new TodoItem("Task 1", Status.pending, "Doing task 1"));
-			Todos todos = new Todos(items);
-			ToolContext toolContext = new ToolContext(Map.of("key", "value"));
-
-			String result = oldStyleTool.todoWrite(todos, toolContext);
+		@DisplayName("Should accept a flat todos payload through the ToolCallback")
+		void shouldAcceptFlatTodosPayload() {
+			String result = toolCallback().call("""
+					{"todos": [
+						{"content": "Fix bug", "status": "completed", "activeForm": "Fixing bug"},
+						{"content": "Add test", "status": "in_progress", "activeForm": "Adding test"}
+					]}
+					""");
 
 			assertThat(result).contains("Todos have been modified successfully");
-			assertThat(capturedTodos.get()).isEqualTo(todos);
+			assertThat(TodoWriteToolTest.this.capturedTodos.get().todos()).containsExactly(
+					new TodoItem("Fix bug", Status.completed, "Fixing bug"),
+					new TodoItem("Add test", Status.in_progress, "Adding test"));
 		}
 
 	}
