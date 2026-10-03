@@ -2,7 +2,6 @@ package org.springaicommunity.agent;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.Scanner;
 
 import org.springaicommunity.agent.tools.BraveWebSearchTool;
@@ -82,8 +81,6 @@ public class Application {
 					System.out.print("\n> USER: ");
 					System.out.println("\n> ASSISTANT: " + chatClient.prompt(scanner.nextLine())
 						.advisors(a -> a.param(ChatMemory.CONVERSATION_ID, "session-1"))
-						// TodoWriteTool's method requires a non-empty ToolContext
-						.toolContext(Map.of(ChatMemory.CONVERSATION_ID, "session-1"))
 						.call()
 						.content());
 				}
